@@ -11,8 +11,30 @@ public class DynamicUIStage : MonoBehaviour
 
     List<GameObject> DragTargets = new();
 
-    public void OnCursorInput(Vector2 InNormalisedPosition)
+    public void OnCursorInput(Vector2 InNormalisedPosition, Vector2 InScrollDelta,
+                              bool bInMouseDownThisFrame, bool bInMouseUpThisFrame, bool bInIsMouseDown)
     {
+        ProcessInput(InNormalisedPosition, InScrollDelta, bInMouseDownThisFrame, bInMouseUpThisFrame, bInIsMouseDown);
+    }
+
+    public void OnCursorInput(Vector2 InNormalisedPosition, Vector2 InScrollDelta)
+    {
+#if ENABLE_LEGACY_INPUT_MANAGER
+        bool bMouseDownThisFrame = Input.GetMouseButtonDown(0);
+        bool bMouseUpThisFrame = Input.GetMouseButtonUp(0);
+        bool bIsMouseDown = Input.GetMouseButton(0);
+#else
+        bool bMouseDownThisFrame = UnityEngine.InputSystem.Mouse.current.leftButton.wasPressedThisFrame;
+        bool bMouseUpThisFrame = UnityEngine.InputSystem.Mouse.current.leftButton.wasReleasedThisFrame;   
+        bool bIsMouseDown = UnityEngine.InputSystem.Mouse.current.leftButton.isPressed;
+#endif // ENABLE_LEGACY_INPUT_MANAGER
+
+        ProcessInput(InNormalisedPosition, InScrollDelta, bMouseDownThisFrame, bMouseUpThisFrame, bIsMouseDown);
+    }
+
+    protected virtual void ProcessInput(Vector2 InNormalisedPosition, Vector2 InScrollDelta,
+                                        bool bInMouseDownThisFrame, bool bInMouseUpThisFrame, bool bInIsMouseDown)
+    { 
         // Get the input position in canvas space
         Vector3 InputPosition = new Vector3(CanvasTransform.sizeDelta.x * InNormalisedPosition.x,
                                             CanvasTransform.sizeDelta.y * InNormalisedPosition.y,
@@ -26,18 +48,8 @@ public class DynamicUIStage : MonoBehaviour
         List<RaycastResult> Results = new();
         Raycaster.Raycast(PointerEvent, Results);
 
-#if ENABLE_LEGACY_INPUT_MANAGER
-        bool bMouseDownThisFrame = Input.GetMouseButtonDown(0);
-        bool bMouseUpThisFrame = Input.GetMouseButtonUp(0);
-        bool bIsMouseDown = Input.GetMouseButton(0);
-#else
-        bool bMouseDownThisFrame = UnityEngine.InputSystem.Mouse.current.leftButton.wasPressedThisFrame;
-        bool bMouseUpThisFrame = UnityEngine.InputSystem.Mouse.current.leftButton.wasReleasedThisFrame;   
-        bool bIsMouseDown = UnityEngine.InputSystem.Mouse.current.leftButton.isPressed;
-#endif // ENABLE_LEGACY_INPUT_MANAGER
-
         // has the mouse button gone up this frame
-        if (bMouseUpThisFrame)
+        if (bInMouseUpThisFrame)
         {
             foreach(var Target in DragTargets)
             {
@@ -57,14 +69,21 @@ public class DynamicUIStage : MonoBehaviour
             PointerEventForResult.pointerPressRaycast = Result;
 
             // is the button down?
-            if (bIsMouseDown)
+            if (bInIsMouseDown)
                 PointerEventForResult.button = PointerEventData.InputButton.Left;
+
+            // is there scroll input?
+            if ((Mathf.Abs(InScrollDelta.x) > float.Epsilon) || (Mathf.Abs(InScrollDelta.y) > float.Epsilon))
+            {
+                PointerEventForResult.scrollDelta = InScrollDelta;
+                ExecuteEvents.Execute(Result.gameObject, PointerEventForResult, ExecuteEvents.scrollHandler);
+            }
 
             // retrieve a slider if hit
             var HitSlider = Result.gameObject.GetComponentInParent<Slider>();
 
             // new drag targets?
-            if (bMouseDownThisFrame)
+            if (bInMouseDownThisFrame)
             {
                 if (ExecuteEvents.Execute(Result.gameObject, PointerEventForResult, ExecuteEvents.beginDragHandler))
                     DragTargets.Add(Result.gameObject);
@@ -86,12 +105,12 @@ public class DynamicUIStage : MonoBehaviour
                     HitSlider.OnDrag(PointerEventForResult);
             }
 
-            if (bMouseDownThisFrame)
+            if (bInMouseDownThisFrame)
             {
                 if (ExecuteEvents.Execute(Result.gameObject, PointerEventForResult, ExecuteEvents.pointerDownHandler))
                     break;
             }
-            else if (bMouseUpThisFrame)
+            else if (bInMouseUpThisFrame)
             {
                 bool bDidRun = false;
                 bDidRun |= ExecuteEvents.Execute(Result.gameObject, PointerEventForResult, ExecuteEvents.pointerUpHandler);
